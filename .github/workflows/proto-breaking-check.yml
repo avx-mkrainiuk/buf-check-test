@@ -1,0 +1,58 @@
+name: Proto Breaking Change Detector
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "**.proto"
+
+jobs:
+  proto_breaking_check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-code
+
+      - name: Checkout base branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base-code
+
+      - name: Install Proto Breaking Change Detector
+        run: |
+          pip install git+https://github.com/googleapis/proto-breaking-change-detector.git@619ad383fcc888a6586ef3e8ff14f10398f0322e
+
+      - name: Run proto breaking change detector
+        id: run-detector
+        run: |
+          proto-breaking-change-detector base-code/ pr-code/ > report.txt
+          echo "Detector finished with exit code $?. Output saved to report.txt."
+
+      - name: Comment on Pull Request with results
+        if: ${{ success() }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('report.txt', 'utf8');
+            const prNumber = context.payload.pull_request.number;
+            let body;
+            if (report && report.trim().length > 0) {
+              body = "## Proto Breaking Change Report\n```\n" + report.substring(0, 65000) + "\n```";
+            } else {
+              body = "## Proto Breaking Change Report\n*No breaking changes detected.*";
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body
+            });
