@@ -1,0 +1,46 @@
+name: Check Protobuf Breaking Changes
+
+on:
+  pull_request:
+    # Only run for PRs when .proto files are affected.
+    paths:
+      - "**/*.proto"
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  buf-breaking-changes:
+    name: Protobuf Breaking Changes Check
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository so we can read the .proto files.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so buf can compare against the target branch.
+          fetch-depth: 0
+
+      # Run buf-action to detect breaking changes.
+      - name: Check for breaking changes with Buf
+        uses: bufbuild/buf-action@e08102e131956fce8553dcde03dc7b05c0c88c46 # v1.0.0
+        with:
+          # Enable breaking change detection.
+          breaking: true
+          # Disable lint checks.
+          lint: false
+          # Disable formatting checks.
+          format: false
+          # Do not push any code back.
+          push: false
+          # Add comments on the PR with results.
+          pr_comment: true
+          # Compare against the target branch (the base of the PR).
+          breaking_against: |
+            https://github.com/${{ github.repository }}.git#branch=${{ github.base_ref }}
