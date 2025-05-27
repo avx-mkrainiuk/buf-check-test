@@ -4,16 +4,21 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "**.proto"
+      - '**/*.proto'
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
-  proto_breaking_check:
+  proto-breaking-change:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write
+
     steps:
-      - name: Checkout PR branch
+      - name: Checkout PR code
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -29,30 +34,36 @@ jobs:
         run: |
           pip install git+https://github.com/googleapis/proto-breaking-change-detector.git@619ad383fcc888a6586ef3e8ff14f10398f0322e
 
-      - name: Run proto breaking change detector
+      - name: Run breaking-change check
         id: run-detector
         run: |
-          proto-breaking-change-detector base-code/ pr-code/ > report.txt
-          echo "Detector finished with exit code $?. Output saved to report.txt."
+          proto-breaking-change-detector \
+            --original_api_definition_dirs base-code/ \
+            --update_api_definition_dirs   pr-code/  \
+            --human_readable_message       \
+            --no_line_numbers              \
+            --output_json_path breaking-report.json \
+            > breaking-report.txt
+          echo "Detector exit code: $?"
 
-      - name: Comment on Pull Request with results
-        if: ${{ success() }}
+      - name: Comment on PR
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const report = fs.readFileSync('report.txt', 'utf8');
+            const report = fs.readFileSync('breaking-report.txt', 'utf8').trim();
             const prNumber = context.payload.pull_request.number;
             let body;
-            if (report && report.trim().length > 0) {
-              body = "## Proto Breaking Change Report\n```\n" + report.substring(0, 65000) + "\n```";
+            if (report.length > 0) {
+              const snippet = report.length > 64000 ? report.slice(0, 64000) + '\n...[truncated]' : report;
+              body = "## 🔍 Proto Breaking Change Report\n```text\n" + snippet + "\n```";
             } else {
-              body = "## Proto Breaking Change Report\n*No breaking changes detected.*";
+              body = "## 🔍 Proto Breaking Change Report\n*No breaking changes detected.*";
             }
-            await github.rest.issues.createComment({
+            return github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: body
+              body: body,
             });
